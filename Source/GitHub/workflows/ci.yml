@@ -1,0 +1,47 @@
+# Example CI workflow that targets the custom self-hosted runner image.
+#
+# Drop this into `.github/workflows/ci.yml` of a consumer repo to benefit from
+# the pre-installed tooling (no `setup-dotnet`, `setup-node`, etc. needed).
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # Use the label we register our custom runners with.
+    runs-on: [self-hosted, linux, cratis]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tool versions
+        run: |
+          dotnet --info
+          node --version
+          pnpm --version
+          python --version
+          go version
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test --no-build --configuration Release --logger "trx;LogFileName=test-results.trx"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: "**/test-results.trx"

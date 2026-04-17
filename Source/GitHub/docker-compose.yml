@@ -1,0 +1,19 @@
+# Spin up one or more self-hosted runners locally.
+#
+#   export GITHUB_URL=https://github.com/cratis/automation
+#   export GITHUB_PAT=ghp_xxx
+#   docker compose up --build --scale runner=2
+
+services:
+  runner:
+    build:
+      context: .
+    image: cratis/gh-runner:latest
+    environment:
+      RUNNER_MODE: actions
+      GITHUB_URL: ${GITHUB_URL:?set GITHUB_URL}
+      GITHUB_PAT: ${GITHUB_PAT:?set GITHUB_PAT}
+      RUNNER_LABELS: ${RUNNER_LABELS:-self-hosted,linux,cratis}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
