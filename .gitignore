@@ -1,0 +1,16 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/
+
+# Build artifacts
+bin/
+obj/
+node_modules/
+dist/
+out/
+
+# Docker
+*.tar
