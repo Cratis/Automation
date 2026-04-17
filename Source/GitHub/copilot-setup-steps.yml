@@ -1,0 +1,59 @@
+# GitHub Copilot coding agent environment bootstrap.
+#
+# Copy (or symlink) this file to `.github/workflows/copilot-setup-steps.yml` at
+# the root of any repository where you want Copilot-assigned issues to run with
+# the same toolchain as our custom runner image.
+#
+# Docs: https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/customize-the-agent-environment
+
+name: Copilot Setup Steps
+
+on:
+  workflow_dispatch:
+  # The job name MUST be `copilot-setup-steps` - Copilot looks for it by name.
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            9.0.x
+            10.0.x
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@latest --activate
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Restore .NET dependencies
+        run: |
+          if ls *.sln 2>/dev/null | head -n1 >/dev/null; then
+            dotnet restore
+          fi
+
+      - name: Install Node dependencies
+        run: |
+          if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; fi
