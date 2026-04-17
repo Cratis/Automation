@@ -28,8 +28,8 @@ specially-named workflow instead:
 
 Our template installs:
 
-- .NET 8 and 9 SDKs
-- Node 22 + pnpm via Corepack
+- .NET 9 and 10 SDKs
+- Node 24 + pnpm via Corepack
 - Python 3.12
 - Restores NuGet and pnpm caches if lockfiles are present
 
@@ -56,7 +56,7 @@ dotnet build
 dotnet test
 
 ## Conventions
-- Target .NET 9.
+- Target .NET 10.
 - Namespaces follow the folder structure.
 - Don't edit generated files under `**/Generated/**`.
 ```
