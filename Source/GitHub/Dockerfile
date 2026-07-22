@@ -8,7 +8,7 @@
 #   2. A ready-made environment for GitHub Copilot coding agent (Copilot-assigned
 #      issues) so the agent starts in a fully bootstrapped workspace.
 
-ARG RUNNER_VERSION=2.320.0
+ARG RUNNER_VERSION=2.335.1
 ARG DOTNET_VERSION=10.0
 ARG NODE_VERSION=24
 ARG PNPM_VERSION=10.2.0

@@ -36,6 +36,16 @@ register_and_run_actions_runner() {
     runner_name="${RUNNER_NAME:-cratis-$(hostname)-$(date +%s)}"
     runner_labels="${RUNNER_LABELS:-self-hosted,linux,cratis}"
 
+    # A container restarted by `restart: unless-stopped` reuses the same filesystem, not a
+    # fresh one. GitHub auto-removes an ephemeral runner's *server-side* registration once its
+    # job finishes, but the *local* .runner/.credentials files survive the restart and make
+    # config.sh refuse to reconfigure ("already configured") - clear them so every restart can
+    # register clean, instead of crash-looping forever.
+    if [[ -f .runner ]]; then
+        log "Clearing stale local runner registration from a previous run"
+        rm -f .runner .credentials .credentials_rsaparams
+    fi
+
     log "Configuring runner '${runner_name}' against ${GITHUB_URL}"
     ./config.sh \
         --url "${GITHUB_URL}" \
@@ -54,7 +64,10 @@ register_and_run_actions_runner() {
     trap cleanup EXIT INT TERM
 
     log "Starting runner"
-    exec ./run.sh
+    # Not `exec` - exec would replace this shell, so the EXIT trap above would never fire once
+    # run.sh eventually exits, and the container would come back up dirty (see the stale-state
+    # cleanup above). Running it in the foreground lets the trap clean up before the container exits.
+    ./run.sh
 }
 
 case "${RUNNER_MODE}" in
