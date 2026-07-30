@@ -47,6 +47,10 @@ register_and_run_actions_runner() {
     fi
 
     log "Configuring runner '${runner_name}' against ${GITHUB_URL}"
+    # --disableupdate: the runner version is pinned in the Dockerfile (RUNNER_VERSION) and bumped
+    # there deliberately. Without this, a version-mismatched runner tries to self-update as part of
+    # its first connect, and that update-then-reconnect cycle has been reliably losing the ephemeral
+    # registration ("Failed to create a session... registration has been deleted from the server").
     ./config.sh \
         --url "${GITHUB_URL}" \
         --token "${token}" \
@@ -55,6 +59,7 @@ register_and_run_actions_runner() {
         --work "_work" \
         --unattended \
         --ephemeral \
+        --disableupdate \
         --replace
 
     cleanup() {
