@@ -26,6 +26,7 @@ Copilot-assigned issues, so what the agent runs is what CI runs.
 | `copilot-agent.md`          | Enable Copilot coding agent and assign it issues            |
 | `workflow-optimization.md`  | Use the image in workflows and keep jobs fast               |
 | `troubleshooting.md`        | Diagnose common problems                                    |
+| `notifications.md`          | Get notified about the right repos, by email                |
 
 ## Quick start
 

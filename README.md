@@ -7,7 +7,7 @@ Infrastructure and tooling that supports the Cratis development loop.
 ```
 .
 ├── Source/
-│   └── GitHub/          Custom GitHub Actions runner image + related workflows
+│   └── GitHub/          Runner image, related workflows, and GitHub helper scripts
 └── Documentation/
     └── GitHub/          How to build, run, and integrate the runner and Copilot
 ```
@@ -172,3 +172,4 @@ and
 - [`Documentation/GitHub/local-setup.md`](Documentation/GitHub/local-setup.md) - run locally
 - [`Documentation/GitHub/github-configuration.md`](Documentation/GitHub/github-configuration.md) - wire up in GitHub
 - [`Documentation/GitHub/copilot-agent.md`](Documentation/GitHub/copilot-agent.md) - run Copilot on assigned issues
+- [`Documentation/GitHub/notifications.md`](Documentation/GitHub/notifications.md) - get notified about the right repos
