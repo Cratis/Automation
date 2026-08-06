@@ -14,14 +14,18 @@ Do these once. Steps 1–3 are scripted; steps 4–6 are web UI only, because
 GitHub exposes no API for notification delivery preferences. Skipping step 4 is
 the usual reason someone watches everything and still receives no email.
 
+You do not need to be an org member to run this — non-members get the org's
+public repositories and public member list.
+
 - [ ] **1. Install and authenticate the GitHub CLI** — `gh auth login`.
       Requires [gh](https://cli.github.com) 2.0+.
-- [ ] **2. Add the `user:follow` scope** —
-      `gh auth refresh -h github.com -s user:follow`.
-      Only needed to follow people; `repo` and `read:org` are usually already
-      granted. Without it the script manages repositories and skips the rest.
-- [ ] **3. Run the script** — `cd Source/GitHub && ./gh-subscribe.sh`.
+- [ ] **2. Run the script** — `cd Source/GitHub && ./gh-subscribe.sh`.
       Preview first with `--dry-run` if you want to see the plan.
+- [ ] **3. Say yes when it offers to add the `user:follow` scope** — the script
+      detects the missing scope and offers to run `gh auth refresh` for you.
+      Answer `n` (or run non-interactively) and it manages repositories only,
+      which is a perfectly good outcome if you would rather not follow people.
+      To do it by hand: `gh auth refresh -h github.com -s user:follow`.
 - [ ] **4. Turn on email delivery** — at
       [github.com/settings/notifications](https://github.com/settings/notifications),
       under **Subscriptions**, tick **Email** for **Watching** *and* for

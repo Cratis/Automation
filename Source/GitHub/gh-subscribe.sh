@@ -123,10 +123,41 @@ command -v gh >/dev/null 2>&1 || die "gh is not installed — see https://cli.gi
 gh auth status >/dev/null 2>&1 || die "not logged in — run: gh auth login"
 
 VIEWER=$(gh api user --jq '.login')
-SCOPES=$(gh api -i user 2>/dev/null | tr -d '\r' | awk 'tolower($1) == "x-oauth-scopes:" { $1=""; print }' | tr -d ' ')
+
+read_scopes() {
+    gh api -i user 2>/dev/null | tr -d '\r' \
+        | awk 'tolower($1) == "x-oauth-scopes:" { $1=""; print }' | tr -d ' '
+}
+SCOPES=$(read_scopes)
 
 has_scope() {
     case ",$SCOPES," in *",$1,"*) return 0 ;; *) return 1 ;; esac
+}
+
+interactive() { [ -t 0 ] && [ -t 1 ] && [ -r /dev/tty ]; }
+
+# Require a token scope, offering to add it when we can actually prompt.
+# Returns non-zero if the scope is still missing afterwards.
+ensure_scope() {
+    _scope="$1"; _why="$2"
+    has_scope "$_scope" && return 0
+
+    warn "missing '${_scope}' scope — needed to ${_why}"
+    if interactive && ! $DRY_RUN; then
+        printf '    add it now? a browser will open [y/N] '
+        read -r _reply < /dev/tty || _reply=""
+        case "$_reply" in
+            [yY]*)
+                if gh auth refresh -h github.com -s "$_scope"; then
+                    SCOPES=$(read_scopes)
+                    has_scope "$_scope" && { ok "'${_scope}' granted"; return 0; }
+                fi
+                warn "could not add '${_scope}'"
+                ;;
+        esac
+    fi
+    note "add it manually with: gh auth refresh -h github.com -s ${_scope}"
+    return 1
 }
 
 head1 "GitHub subscriptions for ${VIEWER}"
@@ -135,15 +166,12 @@ note "orgs: ${ORGS}"
 $DEFAULT_IGNORES && note "muting archived repos and forks by default"
 $DRY_RUN && note "dry run — no changes will be made"
 
-if $DO_WATCH && ! has_scope repo; then
-    die "missing 'repo' scope (needed to manage subscriptions). Run:
-    gh auth refresh -h github.com -s repo"
+if $DO_WATCH && ! ensure_scope repo "manage repository subscriptions"; then
+    die "cannot manage subscriptions without the 'repo' scope"
 fi
 
-if $DO_FOLLOW && ! has_scope user:follow; then
-    warn "missing 'user:follow' scope — skipping the follow step."
-    note "to enable it, run this once and re-run the script:"
-    note "    gh auth refresh -h github.com -s user:follow"
+if $DO_FOLLOW && ! ensure_scope user:follow "follow org members"; then
+    note "continuing with repositories only"
     DO_FOLLOW=false
 fi
 
@@ -261,7 +289,10 @@ if $DO_WATCH; then
         | tr '[:upper:]' '[:lower:]' | sort > "$TMP/watched-lc" || : > "$TMP/watched-lc"
     note "currently watching $(wc -l < "$TMP/watched-lc" | tr -d ' ') repos in total"
 
-    while IFS= read -r org; do plan_org "$org"; done < "$TMP/orgs"
+    # `|| ...` keeps one unreachable org from aborting the run under `set -e`.
+    while IFS= read -r org; do
+        plan_org "$org" || FAILED=$((FAILED + 1))
+    done < "$TMP/orgs"
 fi
 
 # -------------------------------------------------------------- following ---
@@ -271,10 +302,16 @@ FOLLOWED=0; FOLLOW_CORRECT=0; FOLLOW_FAILED=0
 follow_org() {
     org="$1"
 
-    gh api "orgs/$org/members" --paginate --jq '.[].login' > "$TMP/members" 2>"$TMP/err" || {
-        fail "could not list members of '$org': $(cat "$TMP/err")"
-        return 1
-    }
+    # The `members` endpoint needs org membership; outside collaborators and
+    # anyone else can still see whoever has made their membership public.
+    if ! gh api "orgs/$org/members" --paginate --jq '.[].login' > "$TMP/members" 2>"$TMP/err"; then
+        if gh api "orgs/$org/public_members" --paginate --jq '.[].login' > "$TMP/members" 2>"$TMP/err"; then
+            note "not a member of '$org' — falling back to its public member list"
+        else
+            fail "could not list members of '$org': $(cat "$TMP/err")"
+            return 1
+        fi
+    fi
 
     total=$(wc -l < "$TMP/members" | tr -d ' ')
     [ "$total" -gt 0 ] || { warn "no members visible in '$org'"; return 0; }
@@ -319,7 +356,9 @@ if $DO_FOLLOW; then
         | tr '[:upper:]' '[:lower:]' | sort > "$TMP/following-lc" || : > "$TMP/following-lc"
     note "currently following $(wc -l < "$TMP/following-lc" | tr -d ' ') users in total"
 
-    while IFS= read -r org; do follow_org "$org"; done < "$TMP/orgs"
+    while IFS= read -r org; do
+        follow_org "$org" || FOLLOW_FAILED=$((FOLLOW_FAILED + 1))
+    done < "$TMP/orgs"
 fi
 
 # ---------------------------------------------------------------- summary ---
