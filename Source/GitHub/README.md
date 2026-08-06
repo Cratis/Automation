@@ -5,16 +5,17 @@ publish, and consume it — and the helper scripts we run against GitHub itself.
 
 ## Contents
 
-| Path                               | Purpose                                                          |
-| ---------------------------------- | ---------------------------------------------------------------- |
-| `Dockerfile`                       | Ubuntu-based image with .NET, Node, pnpm, Python, Go, gh, Docker |
-| `entrypoint.sh`                    | Registers an ephemeral runner or starts Copilot/shell mode       |
-| `build.sh`                         | Local image build helper                                         |
-| `run-local.sh`                     | Local container run helper                                       |
-| `docker-compose.yml`               | Run one or more local runners                                    |
-| `copilot-setup-steps.yml`          | Copilot coding-agent environment bootstrap                       |
-| `workflows/ci.yml`                 | Sample consumer CI workflow using the self-hosted runner         |
-| `workflows/publish-runner-image.yml` | Builds and publishes the image to GHCR                         |
-| `gh-subscribe.sh`                  | Reconcile your org watch/ignore subscriptions and follows        |
+| Path                                 | Purpose                                                            |
+| ------------------------------------ | ------------------------------------------------------------------ |
+| `Dockerfile`                         | Ubuntu-based image with .NET, Node, pnpm, Python, Go, gh, Docker   |
+| `entrypoint.sh`                      | Registers an ephemeral runner or starts Copilot/shell mode         |
+| `build.sh`                           | Local image build helper                                           |
+| `run-local.sh`                       | Local container run helper                                         |
+| `docker-compose.yml`                 | Run one or more local runners                                      |
+| `copilot-setup-steps.yml`            | Copilot coding-agent environment bootstrap                         |
+| `workflows/ci.yml`                   | Sample consumer CI workflow using the self-hosted runner           |
+| `workflows/publish-runner-image.yml` | Builds and publishes the image to GHCR                             |
+| `gh-subscribe.sh`                    | Reconcile your org watch/ignore subscriptions and follows          |
+| `gh-inbox-done.sh`                   | Mark notifications for merged/closed PRs and closed issues as done |
 
 See `Documentation/GitHub/` for full setup and usage instructions.

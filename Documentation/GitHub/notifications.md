@@ -154,6 +154,48 @@ mail stops arriving, check both — the repository's subscription state (see
   only) exist in the web UI and have no API equivalent, so pick those by hand
   on any repository where all-activity is too noisy but silence is too far.
 
+## Clearing done items from the inbox
+
+Watching gets the right notifications *created*; it does nothing about
+notifications that are still sitting in your inbox after the thing they were
+about is resolved. A PR notification stays there after the PR is merged, and
+an issue notification stays there after the issue is closed — GitHub never
+cleans these up on its own. `gh-inbox-done.sh` marks any such thread "done" —
+the same action as the checkmark in the web inbox — so what is left in your
+inbox is only things that still need a look.
+
+```bash
+cd Source/GitHub
+./gh-inbox-done.sh
+```
+
+That sweeps every notification (read and unread), and for each one pointing
+at an issue or pull request, fetches its current state and marks the thread
+done when the issue is closed or the PR is merged or closed. Everything else
+— releases, discussions, commits, Copilot agent-session threads, and
+anything still open — is left alone.
+
+Preview first:
+
+```bash
+./gh-inbox-done.sh --dry-run
+```
+
+Options:
+
+| Option            | Effect                                                            |
+| ----------------- | ----------------------------------------------------------------- |
+| `--dry-run`, `-n` | Print what would be marked done, write nothing                    |
+| `--unread-only`   | Only scan currently-unread notifications (faster, incremental)    |
+| `--merged-only`   | Leave closed-but-unmerged pull requests alone                     |
+| `--verbose`, `-v` | Also print what was left alone, and why                           |
+| `--jobs N`        | Parallel API calls (default 4; override via `GH_INBOX_DONE_JOBS`) |
+
+Marking a thread done is reversible — it only leaves the default inbox view.
+The thread is still there under the `is:done` filter on
+[github.com/notifications](https://github.com/notifications) and can be
+marked unread again from there.
+
 ## Checking the result
 
 ```bash
