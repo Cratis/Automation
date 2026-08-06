@@ -17,6 +17,16 @@
 # commits, workflow runs, Copilot agent sessions, ...) are left untouched —
 # this script only knows how to judge issues and pull requests as "done".
 #
+# GitHub's notification API has no way to ask for "just what's not already
+# done" — GET /notifications?all=true keeps returning threads you already
+# marked done (a documented API gap: github.com/orgs/community/discussions/
+# 152852), and the thread object carries no "done" field to filter on
+# client-side either. So this script remembers, in a small local state file,
+# every thread it has already confirmed done and at what `updated_at` — on
+# the next run it skips those outright (no subject re-fetch, no re-DELETE)
+# unless updated_at has moved on, which means something happened on the
+# thread since (e.g. it was reopened) and it's worth a fresh look.
+#
 # Usage:
 #   ./gh-inbox-done.sh                  # sweep all notifications (read + unread)
 #   ./gh-inbox-done.sh --dry-run        # show what would be marked done
@@ -24,6 +34,12 @@
 #   ./gh-inbox-done.sh --merged-only    # closed-without-merge PRs are left alone
 #   ./gh-inbox-done.sh --verbose        # also print what was left alone, and why
 #   ./gh-inbox-done.sh --jobs 8         # parallel API calls (default 4)
+#   ./gh-inbox-done.sh --reset-state    # forget which threads were already handled
+#
+# State file: ${GH_INBOX_DONE_STATE_FILE:-$XDG_STATE_HOME or ~/.local/state}/
+# gh-inbox-done/marked-done — one "id<TAB>updated_at" per already-done thread.
+# Safe to delete by hand; it only ever makes runs cheaper, never changes what
+# counts as done.
 #
 # Requirements: gh >= 2.0 (https://cli.github.com), authenticated via
 # `gh auth login`. Token scopes: `notifications` or `repo` (either satisfies
@@ -36,12 +52,14 @@
 set -euo pipefail
 
 JOBS="${GH_INBOX_DONE_JOBS:-4}"
+STATE_FILE="${GH_INBOX_DONE_STATE_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/gh-inbox-done/marked-done}"
 DRY_RUN=false
 UNREAD_ONLY=false
 MERGED_ONLY=false
 VERBOSE=false
+RESET_STATE=false
 
-usage() { sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -49,6 +67,7 @@ while [ $# -gt 0 ]; do
         --unread-only)    UNREAD_ONLY=true; shift ;;
         --merged-only)    MERGED_ONLY=true; shift ;;
         -v|--verbose)     VERBOSE=true; shift ;;
+        --reset-state)    RESET_STATE=true; shift ;;
         --jobs)           JOBS="${2:?--jobs needs a value}"; shift 2 ;;
         --jobs=*)         JOBS="${1#*=}"; shift ;;
         -h|--help)        usage 0 ;;
@@ -92,9 +111,15 @@ if ! has_scope notifications && ! has_scope repo; then
     die "missing 'notifications' (or 'repo') scope — add one with: gh auth refresh -h github.com -s notifications"
 fi
 
+mkdir -p "$(dirname "$STATE_FILE")"
+$RESET_STATE && : > "$STATE_FILE"
+touch "$STATE_FILE"
+sort -u -o "$TMP/known-done" "$STATE_FILE"
+
 head1 "GitHub inbox cleanup"
 if $UNREAD_ONLY; then note "scope: unread notifications only"; else note "scope: all notifications (read + unread)"; fi
 if $MERGED_ONLY; then note "pull requests: only mark done when merged"; else note "pull requests: mark done when merged or closed"; fi
+note "state file: ${STATE_FILE} ($(wc -l < "$TMP/known-done" | tr -d ' ') threads already known done)"
 $DRY_RUN && note "dry run — no changes will be made"
 
 # -------------------------------------------------------------- fetch ---
@@ -102,8 +127,8 @@ $DRY_RUN && note "dry run — no changes will be made"
 ALL_PARAM="true"
 $UNREAD_ONLY && ALL_PARAM="false"
 
-gh api -X GET notifications --paginate -f "all=${ALL_PARAM}" -f "per_page=100" \
-    --jq '.[] | [.id, .subject.type, (.subject.url // ""), .repository.full_name, .subject.title] | @tsv' \
+gh api -X GET notifications --paginate -f "all=${ALL_PARAM}" -f "per_page=50" \
+    --jq '.[] | [.id, .subject.type, (.subject.url // ""), .repository.full_name, .subject.title, .updated_at] | @tsv' \
     > "$TMP/notifications" 2>"$TMP/err" || die "could not list notifications: $(cat "$TMP/err")"
 
 TOTAL=$(wc -l < "$TMP/notifications" | tr -d ' ')
@@ -116,53 +141,61 @@ fi
 
 # ---------------------------------------------------------- classify ---
 
-# For one notification line, decide whether its subject (issue or PR) is
-# resolved, and print "done:<id>:<repo>#<num>:<title>" or "skip:<reason>:...".
+# For one notification, decide whether its subject (issue or PR) is resolved.
+# Always emits 6 tab-separated fields: status, reason(or "-" for done), id,
+# updated_at, repo, title — so every downstream reader can split uniformly.
 classify() {
-    _id="$1"; _type="$2"; _url="$3"; _repo="$4"; _title="$5"
+    _id="$1"; _type="$2"; _url="$3"; _repo="$4"; _title="$5"; _updated="$6"
 
     case "$_type" in
         Issue|PullRequest) ;;
-        *) printf 'skip:type(%s):%s:%s: %s\n' "$_type" "$_id" "$_repo" "$_title"; return ;;
+        *) printf 'skip\ttype(%s)\t%s\t%s\t%s\t%s\n' "$_type" "$_id" "$_updated" "$_repo" "$_title"; return ;;
     esac
 
-    [ -n "$_url" ] || { printf 'skip:no-url:%s:%s: %s\n' "$_id" "$_repo" "$_title"; return; }
+    [ -n "$_url" ] || { printf 'skip\tno-url\t%s\t%s\t%s\t%s\n' "$_id" "$_updated" "$_repo" "$_title"; return; }
 
     _path="${_url#https://api.github.com/}"
     _resource=$(gh api "$_path" --jq '"\(.state)\t\(.merged // false)"' 2>/dev/null) || {
-        printf 'skip:fetch-failed:%s:%s: %s\n' "$_id" "$_repo" "$_title"; return
+        printf 'skip\tfetch-failed\t%s\t%s\t%s\t%s\n' "$_id" "$_updated" "$_repo" "$_title"; return
     }
-    IFS="$(printf '\t')" read -r _state _merged <<< "$_resource"
+    IFS="$TAB" read -r _state _merged <<< "$_resource"
 
     case "$_type" in
         Issue)
             if [ "$_state" = "closed" ]; then
-                printf 'done:%s:%s:%s\n' "$_id" "$_repo" "$_title"
+                printf 'done\t-\t%s\t%s\t%s\t%s\n' "$_id" "$_updated" "$_repo" "$_title"
             else
-                printf 'skip:open:%s:%s: %s\n' "$_id" "$_repo" "$_title"
+                printf 'skip\topen\t%s\t%s\t%s\t%s\n' "$_id" "$_updated" "$_repo" "$_title"
             fi
             ;;
         PullRequest)
             if [ "$_merged" = "true" ]; then
-                printf 'done:%s:%s:%s\n' "$_id" "$_repo" "$_title"
+                printf 'done\t-\t%s\t%s\t%s\t%s\n' "$_id" "$_updated" "$_repo" "$_title"
             elif [ "$_state" = "closed" ] && ! $MERGED_ONLY; then
-                printf 'done:%s:%s:%s\n' "$_id" "$_repo" "$_title"
+                printf 'done\t-\t%s\t%s\t%s\t%s\n' "$_id" "$_updated" "$_repo" "$_title"
             else
-                printf 'skip:open:%s:%s: %s\n' "$_id" "$_repo" "$_title"
+                printf 'skip\topen\t%s\t%s\t%s\t%s\n' "$_id" "$_updated" "$_repo" "$_title"
             fi
             ;;
     esac
 }
-# Run classify() over every notification with up to $JOBS in flight. Deliberately
-# not xargs -I{}: that splices each line's text (including the issue/PR title —
-# free-form text set by whoever opened it) straight into a shell command string,
-# which is a command-injection footgun. Backgrounding the function directly keeps
-# every field a plain argv value that is never re-parsed as shell syntax.
+
+# Run classify() over every notification not already known-done, with up to
+# $JOBS in flight. Deliberately not xargs -I{}: that splices each line's text
+# (including the issue/PR title — free-form text set by whoever opened it)
+# straight into a shell command string, which is a command-injection footgun.
+# Backgrounding the function directly keeps every field a plain argv value
+# that is never re-parsed as shell syntax.
 : > "$TMP/classified"
+CACHED=0
 RUNNING=0
-while IFS="$TAB" read -r id type url repo title; do
+while IFS="$TAB" read -r id type url repo title updated; do
     [ -n "$id" ] || continue
-    classify "$id" "$type" "$url" "$repo" "$title" >> "$TMP/classified" &
+    if grep -qxF "${id}${TAB}${updated}" "$TMP/known-done"; then
+        CACHED=$((CACHED + 1))
+        continue
+    fi
+    classify "$id" "$type" "$url" "$repo" "$title" "$updated" >> "$TMP/classified" &
     RUNNING=$((RUNNING + 1))
     if [ "$RUNNING" -ge "$JOBS" ]; then
         wait
@@ -171,11 +204,13 @@ while IFS="$TAB" read -r id type url repo title; do
 done < "$TMP/notifications"
 wait
 
+note "skipped ${CACHED} already known-done and unchanged since"
+
 # ------------------------------------------------------------- act ---
 
 DONE=0; SKIPPED=0; FAILED=0
 
-grep '^done:' "$TMP/classified" > "$TMP/todo" || : > "$TMP/todo"
+grep '^done' "$TMP/classified" > "$TMP/todo" || : > "$TMP/todo"
 TODO_COUNT=$(wc -l < "$TMP/todo" | tr -d ' ')
 
 head1 "Resolved (merged / closed)"
@@ -183,7 +218,7 @@ if [ "$TODO_COUNT" -eq 0 ]; then
     note "none found"
 else
     if $DRY_RUN; then
-        while IFS=':' read -r _ id repo title; do
+        while IFS="$TAB" read -r _ _ _ _ repo title; do
             note "would mark done: ${repo} — ${title}"
         done < "$TMP/todo"
         DONE=$TODO_COUNT
@@ -192,43 +227,51 @@ else
         # own API — the grep is a defensive belt-and-suspenders check, not a
         # workaround for anything observed. $0 (not text substitution) is what
         # keeps this safe even if that ever stopped being true.
-        cut -d: -f2 "$TMP/todo" | grep -E '^[0-9]+$' > "$TMP/todo-ids" || : > "$TMP/todo-ids"
+        cut -f3 "$TMP/todo" | grep -E '^[0-9]+$' > "$TMP/todo-ids" || : > "$TMP/todo-ids"
         # shellcheck disable=SC2016  # $0 is expanded by the inner bash -c, not this shell
         xargs -P "$JOBS" -n1 bash -c '
             if gh api -X DELETE "notifications/threads/$0" --silent >/dev/null 2>&1
             then echo "ok $0"; else echo "fail $0"; fi
         ' < "$TMP/todo-ids" > "$TMP/results" || true
 
+        : > "$TMP/newly-done"
         while IFS=' ' read -r status id; do
-            _line=$(grep "^done:${id}:" "$TMP/todo" | head -1)
-            _repo=$(printf '%s' "$_line" | cut -d: -f3)
-            _title=$(printf '%s' "$_line" | cut -d: -f4-)
+            _line=$(grep -m1 "$(printf '^done\t-\t%s\t' "$id")" "$TMP/todo")
+            IFS="$TAB" read -r _ _ _ _updated _repo _title <<< "$_line"
             case "$status" in
-                ok)   ok "${_repo} — ${_title}"; DONE=$((DONE + 1)) ;;
+                ok)
+                    ok "${_repo} — ${_title}"
+                    printf '%s\t%s\n' "$id" "$_updated" >> "$TMP/newly-done"
+                    DONE=$((DONE + 1))
+                    ;;
                 fail) fail "${_repo} — thread ${id}"; FAILED=$((FAILED + 1)) ;;
             esac
         done < "$TMP/results"
+
+        if [ -s "$TMP/newly-done" ]; then
+            cat "$TMP/newly-done" "$STATE_FILE" | sort -u -o "$STATE_FILE"
+        fi
     fi
 fi
 
-SKIPPED=$(grep -c '^skip:' "$TMP/classified" || true)
+SKIPPED=$(grep -c '^skip' "$TMP/classified" || true)
 
 if $VERBOSE && [ "$SKIPPED" -gt 0 ]; then
     head1 "Left alone"
-    while IFS=':' read -r _ reason id repo title; do
+    while IFS="$TAB" read -r _ reason _ _ repo title; do
         note "${repo} — ${title} (${reason})"
-    done < <(grep '^skip:' "$TMP/classified")
+    done < <(grep '^skip' "$TMP/classified")
 fi
 
 # ---------------------------------------------------------------- summary ---
 
 head1 "Summary"
 if $DRY_RUN; then
-    info "  ${DONE} would be marked done, ${SKIPPED} left alone (still open, or not an issue/PR)"
+    info "  ${DONE} would be marked done, ${SKIPPED} left alone, ${CACHED} already known done"
     printf '\n'
     note "Dry run — nothing was changed. Re-run without --dry-run to apply."
 else
-    info "  ${DONE} marked done, ${SKIPPED} left alone, ${FAILED} failed"
+    info "  ${DONE} marked done, ${SKIPPED} left alone, ${CACHED} already known done, ${FAILED} failed"
 fi
 
 [ "$FAILED" -eq 0 ]
