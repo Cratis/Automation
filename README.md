@@ -77,7 +77,7 @@ or a registration token you generate yourself.
    - `repo` + `workflow` - for repo-level registration (step 3 below).
    - `admin:org` - for org-level registration (step 4 below).
 3. Set an expiration, generate, and copy the token immediately - GitHub only
-   shows it once. Use it as `GITHUB_PAT`.
+   shows it once. Use it as `GITHUB_PAT` (see step 3 below for where it goes).
 
 **Fine-grained PAT** (narrower scope; repo-level registration)
 
@@ -88,7 +88,8 @@ or a registration token you generate yourself.
    specific repo (or a chosen set of repos).
 3. Under **Repository permissions**, grant **Actions: Read and write** and
    **Administration: Read and write**.
-4. Generate and copy the token. Use it as `GITHUB_PAT`.
+4. Generate and copy the token. Use it as `GITHUB_PAT` (see step 3 below for
+   where it goes).
 
 Fine-grained tokens can also be scoped to organization permissions (**Self-
 hosted runners: Read and write**) for org-level registration, but only if
@@ -109,22 +110,32 @@ running the agent.
 
 ### 3. Configure per repository
 
+Don't `export` `GITHUB_PAT`/`RUNNER_TOKEN` and pass them straight to
+`run-local.sh` - anything exported in your shell and then handed to a script
+as `-e` on a `docker run` line ends up in that command's argv, which any
+local process can read via `ps`. Instead, put them in `~/.cratis-gh-runner.env`
+(`chmod 600` it) and `run-local.sh`/`docker-compose.yml` pick it up via
+`--env-file`/`env_file:`, so the secret only ever touches a file descriptor.
+
 Register the agent against a single repo with a PAT (`repo` + `workflow`
-scopes):
+scopes) - create `~/.cratis-gh-runner.env`:
 
 ```bash
-export GITHUB_URL=https://github.com/<owner>/<repo>
-export GITHUB_PAT=ghp_xxxxxxxxxxxxxxxx
+GITHUB_URL=https://github.com/<owner>/<repo>
+GITHUB_PAT=ghp_xxxxxxxxxxxxxxxx
+```
+
+Then just run:
+
+```bash
 ./run-local.sh
 ```
 
-Or exchange a repo-scoped registration token yourself and skip the PAT:
+Or exchange a repo-scoped registration token yourself and skip the PAT - add
+`RUNNER_TOKEN` to the same file instead of `GITHUB_PAT`:
 
 ```bash
-RUNNER_TOKEN=$(gh api -X POST \
-    repos/<owner>/<repo>/actions/runners/registration-token --jq .token)
-GITHUB_URL=https://github.com/<owner>/<repo> RUNNER_TOKEN=$RUNNER_TOKEN \
-    ./run-local.sh
+gh api -X POST repos/<owner>/<repo>/actions/runners/registration-token --jq .token
 ```
 
 Each container registers as an **ephemeral** runner (one job, then it
@@ -141,12 +152,17 @@ RUNNER_TOKEN=$(gh api -X POST \
     orgs/<org>/actions/runners/registration-token --jq .token)
 ```
 
-Then run:
+Then put these in `~/.cratis-gh-runner.env`:
 
 ```bash
-export GITHUB_URL=https://github.com/<org>
-export RUNNER_TOKEN=<org-level-registration-token>
-export RUNNER_LABELS=self-hosted,linux,cratis
+GITHUB_URL=https://github.com/<org>
+RUNNER_TOKEN=<org-level-registration-token>
+RUNNER_LABELS=self-hosted,linux,cratis
+```
+
+And run:
+
+```bash
 ./run-local.sh
 ```
 

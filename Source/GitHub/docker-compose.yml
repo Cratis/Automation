@@ -1,7 +1,14 @@
 # Spin up one or more self-hosted runners locally.
 #
-#   export GITHUB_URL=https://github.com/cratis/automation
-#   export GITHUB_PAT=ghp_xxx
+# Secrets (GITHUB_URL, GITHUB_PAT) come from an env file, not `environment:`
+# interpolation - that would require exporting them in your shell first, and
+# anything exported there is readable by other local processes via
+# /proc/<pid>/environ. Create ~/.cratis-gh-runner.env (chmod 600 it):
+#
+#   GITHUB_URL=https://github.com/cratis/automation
+#   GITHUB_PAT=ghp_xxx
+#
+# Then:
 #   docker compose up --build --scale runner=2
 
 services:
@@ -9,10 +16,10 @@ services:
     build:
       context: .
     image: cratis/gh-runner:latest
+    env_file:
+      - ${HOME}/.cratis-gh-runner.env
     environment:
       RUNNER_MODE: actions
-      GITHUB_URL: ${GITHUB_URL:?set GITHUB_URL}
-      GITHUB_PAT: ${GITHUB_PAT:?set GITHUB_PAT}
       RUNNER_LABELS: ${RUNNER_LABELS:-self-hosted,linux,cratis}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

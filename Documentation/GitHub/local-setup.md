@@ -41,9 +41,19 @@ Three modes are supported via `RUNNER_MODE`.
 
 ### 1. As a self-hosted runner (default)
 
+Secrets (`GITHUB_PAT`, `RUNNER_TOKEN`) are read from an env file, never from
+`export`ed shell variables passed as `-e` to `docker run` - that puts the
+secret straight into the command line, which any local process can read via
+`ps`. Create `~/.cratis-gh-runner.env` (`chmod 600` it):
+
 ```bash
-export GITHUB_URL=https://github.com/cratis/automation
-export GITHUB_PAT=ghp_xxxxxxxxxxxxxxxx
+GITHUB_URL=https://github.com/cratis/automation
+GITHUB_PAT=ghp_xxxxxxxxxxxxxxxx
+```
+
+Then just run:
+
+```bash
 ./run-local.sh
 ```
 
@@ -52,14 +62,24 @@ the runner in `--ephemeral` mode (so it exits after one job), and cleans itself
 up on shutdown. Start with `docker-compose up --scale runner=N` for multiple
 runners.
 
-You can also skip the PAT exchange and pass a registration token directly:
+You can also skip the PAT exchange and put a registration token directly in
+the file instead:
 
 ```bash
 RUNNER_TOKEN=$(gh api -X POST \
     repos/cratis/automation/actions/runners/registration-token --jq .token)
-GITHUB_URL=https://github.com/cratis/automation RUNNER_TOKEN=$RUNNER_TOKEN \
-    ./run-local.sh
 ```
+
+```bash
+# ~/.cratis-gh-runner.env
+GITHUB_URL=https://github.com/cratis/automation
+RUNNER_TOKEN=<paste the token here>
+```
+
+Override the file location with `RUNNER_ENV_FILE`; anything already exported
+in your own shell (`GITHUB_URL`, `GITHUB_PAT`, `RUNNER_TOKEN`, `RUNNER_NAME`,
+`RUNNER_LABELS`) is folded in too and takes precedence over the file - it's
+still kept out of the `docker run` argv either way.
 
 ### 2. Interactive shell (for debugging the image)
 

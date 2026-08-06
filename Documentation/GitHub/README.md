@@ -35,9 +35,13 @@ Copilot-assigned issues, so what the agent runs is what CI runs.
 cd Source/GitHub
 ./build.sh
 
-# 2. Register a runner against this repo (PAT needs `repo` + `workflow` scope).
-export GITHUB_URL=https://github.com/cratis/automation
-export GITHUB_PAT=ghp_xxx
+# 2. Put credentials in ~/.cratis-gh-runner.env (chmod 600 it) - never
+#    export GITHUB_PAT and pass it as -e, that lands the secret in the
+#    `docker run` command line where any local process can read it via `ps`.
+#      GITHUB_URL=https://github.com/cratis/automation
+#      GITHUB_PAT=ghp_xxx   (needs `repo` + `workflow` scope)
+
+# 3. Register a runner against this repo.
 ./run-local.sh
 ```
 
