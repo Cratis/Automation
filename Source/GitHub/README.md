@@ -1,7 +1,7 @@
 # Source/GitHub
 
 Custom GitHub Actions runner image for Cratis, plus the workflows that build,
-publish, and consume it.
+publish, and consume it — and the helper scripts we run against GitHub itself.
 
 ## Contents
 
@@ -15,5 +15,6 @@ publish, and consume it.
 | `copilot-setup-steps.yml`          | Copilot coding-agent environment bootstrap                       |
 | `workflows/ci.yml`                 | Sample consumer CI workflow using the self-hosted runner         |
 | `workflows/publish-runner-image.yml` | Builds and publishes the image to GHCR                         |
+| `gh-subscribe.sh`                  | Reconcile your org watch/ignore subscriptions and follows        |
 
 See `Documentation/GitHub/` for full setup and usage instructions.
