@@ -40,7 +40,7 @@ self-hosted` provides** so the agent hits the same commands CI does.
 
 Two files dramatically improve outcomes:
 
-- `AGENTS.md` (or `.github/copilot-instructions.md`) - house rules: build
+- `AGENTS.md` -> `.cratis/PROJECT.md` - house rules: build
   commands, test commands, code style, do/don't lists.
 - `CONTRIBUTING.md` - keep it accurate; Copilot reads it.
 
