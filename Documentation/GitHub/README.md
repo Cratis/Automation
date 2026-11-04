@@ -1,21 +1,14 @@
 # GitHub Automation
 
-This folder documents how we optimize GitHub Actions workflows with a custom
-runner image and how we wire up the GitHub Copilot coding agent so it can pick
-up assigned issues and work on them inside the same environment.
+Cratis Automation provides a Docker image and helper scripts for running GitHub Actions jobs with the Cratis toolchain already installed. Start with [local setup](local-setup.md) to build the image and either inspect it in a shell or register it for a trusted repository.
+
+If you administer runners for several repositories, continue with [GitHub configuration](github-configuration.md) to publish the image and choose a runner host. The [Copilot coding agent guide](copilot-agent.md) is a separate route: GitHub hosts that agent and uses a setup workflow to prepare its environment.
 
 ## Why a custom image?
 
-Hosted `ubuntu-latest` runners ship with a lot of tooling, but they're slow for
-Cratis-shaped workloads:
+On a hosted `ubuntu-latest` runner, a workflow may install its required SDKs with `actions/setup-dotnet`, `actions/setup-node` and similar steps. A self-hosted runner using this image starts with those tools installed, so workflows can avoid reinstalling the tools the image already supplies. Matrix jobs can reuse that preparation too.
 
-- Every job re-runs `actions/setup-dotnet`, `actions/setup-node`, etc.
-- Cold NuGet and pnpm caches add minutes per job.
-- Matrix jobs multiply that cost.
-
-Baking the toolchain into an image that we also use as a self-hosted runner
-removes that overhead. The same image doubles as the environment for
-Copilot-assigned issues, so what the agent runs is what CI runs.
+Project dependencies still need restoring: building the image does not fill a repository's NuGet or pnpm caches. Copilot's hosted setup workflow and the Dockerfile select their tools independently, so shared build commands do not establish identical environments. Check the tools your repository requires before removing its setup steps.
 
 ## Documents
 
@@ -29,6 +22,8 @@ Copilot-assigned issues, so what the agent runs is what CI runs.
 | `notifications.md`          | Get notified about the right repos, by email                |
 
 ## Quick start
+
+Before starting the runner, follow [local setup](local-setup.md) for prerequisites and credential-file handling. Use a host you trust with its jobs, and do not run public-repository pull-request jobs on it. The helper mounts an available host Docker socket by default, giving jobs control of the host Docker daemon; review [the socket-mount options](local-setup.md#docker-in-docker-vs-socket-mount) before running the commands below. Registration lets GitHub send a job to this machine; it is not just a local image check. Use the shell mode in local setup if you only want to inspect the tools. If registration or job selection fails, use [troubleshooting](troubleshooting.md) to check logs, token access and runner labels.
 
 ```bash
 # 1. Build the image locally.
