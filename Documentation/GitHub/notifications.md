@@ -8,6 +8,21 @@ merely cloned, contributed to once, or have write access to generate nothing.
 New repositories appear in the org regularly, so the set drifts out of date on
 its own. `gh-subscribe.sh` reconciles it in one command.
 
+Start with the prerequisites and setup checklist, then check the result before changing optional ignore rules or clearing the inbox. The default run ignores archived repositories and forks, suppressing even @mentions; review those defaults before running it. Subscription checks do not establish that email arrived; also complete the delivery and address checks in the checklist.
+
+## Prerequisites
+
+- [GitHub CLI](https://cli.github.com) 2.0+, authenticated with `gh auth login`.
+- Token scopes:
+  - `repo` — required, to read and write repository subscriptions.
+  - `read:org` — required, to list org members.
+  - `user:follow` — optional, only to follow people. Add it with
+    `gh auth refresh -h github.com -s user:follow`.
+
+The script checks these up front and tells you the exact command to run if
+something is missing. Without `user:follow` it degrades to managing
+repositories only rather than failing.
+
 ## Setup checklist
 
 Do these once. Steps 1–3 are scripted; steps 4–6 are web UI only, because
@@ -48,6 +63,24 @@ Optional:
 - [ ] **Re-run after new repositories appear** — the script is idempotent, so
       `./gh-subscribe.sh` is safe to run any time.
 
+## Checking the result
+
+```bash
+# How many Cratis repos am I watching?
+gh api user/subscriptions --paginate --jq '.[].full_name' | grep -c '^Cratis/'
+
+# State for one repo. 404 means neither watched nor ignored — GitHub only
+# stores a subscription record once you have explicitly chosen a state.
+gh api repos/Cratis/Chronicle/subscription
+
+# Unread notifications, without opening a browser.
+gh api notifications --jq '.[] | "\(.repository.full_name): \(.subject.title)"'
+```
+
+Note that `user/subscriptions` lists only *watched* repositories — ignored ones
+are absent from it. That is why the script checks ignore candidates one at a
+time rather than trusting the bulk list.
+
 ## Watching, ignoring, and doing nothing
 
 The script drives every repository in the org to one of two **explicit** states:
@@ -64,19 +97,6 @@ decided is noise should stay quiet even when someone drags you into a thread.
 
 Archived repositories and forks are ignored by default. Everything else in the
 org is watched.
-
-## Prerequisites
-
-- [GitHub CLI](https://cli.github.com) 2.0+, authenticated with `gh auth login`.
-- Token scopes:
-  - `repo` — required, to read and write repository subscriptions.
-  - `read:org` — required, to list org members.
-  - `user:follow` — optional, only to follow people. Add it with
-    `gh auth refresh -h github.com -s user:follow`.
-
-The script checks these up front and tells you the exact command to run if
-something is missing. Without `user:follow` it degrades to managing
-repositories only rather than failing.
 
 ## Usage
 
@@ -195,21 +215,3 @@ Marking a thread done is reversible — it only leaves the default inbox view.
 The thread is still there under the `is:done` filter on
 [github.com/notifications](https://github.com/notifications) and can be
 marked unread again from there.
-
-## Checking the result
-
-```bash
-# How many Cratis repos am I watching?
-gh api user/subscriptions --paginate --jq '.[].full_name' | grep -c '^Cratis/'
-
-# State for one repo. 404 means neither watched nor ignored — GitHub only
-# stores a subscription record once you have explicitly chosen a state.
-gh api repos/Cratis/Chronicle/subscription
-
-# Unread notifications, without opening a browser.
-gh api notifications --jq '.[] | "\(.repository.full_name): \(.subject.title)"'
-```
-
-Note that `user/subscriptions` lists only *watched* repositories — ignored ones
-are absent from it. That is why the script checks ignore candidates one at a
-time rather than trusting the bulk list.

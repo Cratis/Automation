@@ -1,6 +1,8 @@
 # Local Setup
 
-How to build and run the custom GitHub Actions runner image on your workstation.
+Build the image on your workstation, then choose whether to inspect its tools or register it to accept a GitHub Actions job. You need access to the target repository only for registration; shell mode lets you inspect the image without registering a runner.
+
+Use a host you trust with the jobs it will accept. Do not send public-repository pull-request jobs to a self-hosted runner. The helper mounts an available host Docker socket by default, giving jobs control of the host Docker daemon; read [the socket-mount options](#docker-in-docker-vs-socket-mount) before starting it.
 
 ## Prerequisites
 
@@ -12,10 +14,14 @@ How to build and run the custom GitHub Actions runner image on your workstation.
 
 ## Build
 
+From the repository root, build and load the image into your local Docker image store:
+
 ```bash
 cd Source/GitHub
 ./build.sh
 ```
+
+The helper reports the image name, tag and platform when the build succeeds. With the defaults below, expect `Built cratis/gh-runner:latest for linux/amd64`. The run helper uses that locally loaded image. Choose the platform before building; for an Apple Silicon native image, use the `linux/arm64` override rather than the default emulated architecture.
 
 Useful environment overrides:
 
@@ -24,6 +30,8 @@ Useful environment overrides:
 | `IMAGE_NAME` | `cratis/gh-runner`   | Image repository name             |
 | `IMAGE_TAG`  | `latest`             | Tag                               |
 | `PLATFORM`   | `linux/amd64`        | e.g. `linux/arm64` on Apple Silicon |
+
+You can now skip to [Run](#run) for local use. Publishing a multi-arch image is a separate task: the following command pushes to GHCR and requires permission to push the target image. Return to the repository root first, because this command uses `Source/GitHub` as its build context. For the administrator publishing workflow, use [GitHub configuration](github-configuration.md).
 
 Multi-arch build for publishing:
 
@@ -37,33 +45,28 @@ docker buildx build \
 
 ## Run
 
-Three modes are supported via `RUNNER_MODE`.
+Run the commands below from `Source/GitHub`, using the image you built. `RUNNER_MODE` chooses between accepting a GitHub Actions job, opening a shell and leaving a local container idle. The latter two modes do not register an Actions runner.
 
 ### 1. As a self-hosted runner (default)
 
-Secrets (`GITHUB_PAT`, `RUNNER_TOKEN`) are read from an env file, never from
-`export`ed shell variables passed as `-e` to `docker run` - that puts the
-secret straight into the command line, which any local process can read via
-`ps`. Create `~/.cratis-gh-runner.env` (`chmod 600` it):
+Keep secrets (`GITHUB_PAT`, `RUNNER_TOKEN`) in an env file; never put their values in `docker run` arguments, where local processes can inspect them through `ps`. Create `~/.cratis-gh-runner.env` and restrict it with `chmod 600` before supplying credentials. The example registers against one repository; its PAT needs the permissions listed above. For an organization, supply an org-level registration token as described in [GitHub configuration](github-configuration.md#option-b---organization-runners-recommended).
 
 ```bash
 GITHUB_URL=https://github.com/cratis/automation
 GITHUB_PAT=ghp_xxxxxxxxxxxxxxxx
 ```
 
-Then just run:
+With the file in place, start the container:
 
 ```bash
 ./run-local.sh
 ```
 
-The entrypoint exchanges the PAT for a short-lived registration token, starts
-the runner in `--ephemeral` mode (so it exits after one job), and cleans itself
-up on shutdown. Start with `docker-compose up --scale runner=N` for multiple
-runners.
+The entrypoint exchanges a repository PAT for a short-lived registration token and configures the runner in `--ephemeral` mode to accept one job. Check the target repository's Actions runner settings for its registration and status before expecting a workflow to select it. If it does not appear online, start with the container logs in [troubleshooting](troubleshooting.md#the-runner-never-comes-online).
 
-You can also skip the PAT exchange and put a registration token directly in
-the file instead:
+The entrypoint attempts to remove its registration on shutdown; this is not host isolation. For several runners, run `docker compose up --scale runner=N` from `Source/GitHub`. Compose restarts the service after it exits and reuses its container filesystem, so do not treat each registration as a fresh host.
+
+If you already have a registration token, put it in the file instead of the PAT. To request a repository token with the command below, your GitHub CLI session must already have access to administer runners for that repository. Generate it shortly before starting the runner, then put the result in the same protected file:
 
 ```bash
 RUNNER_TOKEN=$(gh api -X POST \
@@ -76,12 +79,11 @@ GITHUB_URL=https://github.com/cratis/automation
 RUNNER_TOKEN=<paste the token here>
 ```
 
-Override the file location with `RUNNER_ENV_FILE`; anything already exported
-in your own shell (`GITHUB_URL`, `GITHUB_PAT`, `RUNNER_TOKEN`, `RUNNER_NAME`,
-`RUNNER_LABELS`) is folded in too and takes precedence over the file - it's
-still kept out of the `docker run` argv either way.
+Override the file location with `RUNNER_ENV_FILE`. The helper also folds in exported `GITHUB_URL`, `GITHUB_PAT`, `RUNNER_TOKEN`, `RUNNER_NAME` and `RUNNER_LABELS`, which take precedence over the file. It writes a private temporary env file and passes that file to Docker, keeping these values out of its own `docker run` argv. This does not make exported credentials private from the surrounding host environment; use the protected file for secrets.
 
 ### 2. Interactive shell (for debugging the image)
+
+Use this mode to inspect the installed tools without exchanging a token or accepting a job:
 
 ```bash
 RUNNER_MODE=shell ./run-local.sh
@@ -93,6 +95,8 @@ pnpm --version
 
 ### 3. Copilot-style environment
 
+This mode leaves a local container idle for `docker exec`; it does not start GitHub's hosted Copilot coding agent. To configure that agent, follow [the Copilot guide](copilot-agent.md).
+
 ```bash
 RUNNER_MODE=copilot ./run-local.sh
 # container idles so you can `docker exec` into it the way Copilot does.
@@ -100,9 +104,7 @@ RUNNER_MODE=copilot ./run-local.sh
 
 ## Tear-down
 
-Ephemeral runners remove their own registration. If something crashed and a
-runner is stuck in **Offline** state in the repo settings, remove it from the
-UI or via:
+The runner is configured for one job, and its shutdown handler attempts to remove its registration. A crash can interrupt cleanup. If a runner is stuck in **Offline** state in the repository settings, identify that runner before removing it from the UI or with the existing command below:
 
 ```bash
 gh api -X DELETE repos/cratis/automation/actions/runners/<id>
@@ -110,6 +112,6 @@ gh api -X DELETE repos/cratis/automation/actions/runners/<id>
 
 ## Docker-in-Docker vs socket mount
 
-`run-local.sh` and `docker-compose.yml` mount the host Docker socket by
-default so workflow steps that build container images work without nesting
-Docker. Set `MOUNT_DOCKER_SOCK=0` to disable it.
+`run-local.sh` mounts `/var/run/docker.sock` by default when that socket exists; `docker-compose.yml` declares the mount unconditionally. This lets job steps use the host Docker daemon instead of a nested daemon, and gives those jobs root-level control of the host.
+
+Set `MOUNT_DOCKER_SOCK=0` to disable the helper's mount before starting it. Compose does not read that switch: changing its mount requires separate configuration. Jobs that rely on the socket then need another Docker/build service; the runner does not configure one for you.

@@ -1,8 +1,10 @@
 # Workflow Optimization
 
-Patterns we apply on top of the custom runner image to keep CI fast.
+Choose a pattern for an observed problem in the workflow you own. The section numbers label independent options, not setup steps to run in order. You do not need every option.
 
 ## 1. Skip the setup steps
+
+Only add a setup action if you need a version the image doesn't provide.
 
 With the toolchain baked in, drop `setup-dotnet`, `setup-node`,
 `setup-python`, etc:
@@ -16,9 +18,9 @@ jobs:
       - run: dotnet build
 ```
 
-Only add a setup action if you need a version the image doesn't provide.
-
 ## 2. Cancel superseded runs
+
+Use this cancellation pattern only for superseded verification runs, not for publishing or deployment. Keep checks required for merge or release on their gating path.
 
 ```yaml
 concurrency:
