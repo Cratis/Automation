@@ -5,8 +5,16 @@ on:
     - cron: '13 5 * * 2'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   update:
+    # Writes go through PAT_WORKFLOWS; the built-in token only reads the repository, pull requests and packages.
+    permissions:
+      contents: read
+      packages: read
+      pull-requests: read
     uses: Cratis/Workflows/.github/workflows/update-packages.yml@main
     secrets:
       PAT_WORKFLOWS: ${{ secrets.PAT_WORKFLOWS }}
