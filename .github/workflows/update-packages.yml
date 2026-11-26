@@ -14,7 +14,6 @@ jobs:
     permissions:
       contents: read
       packages: read
-      pull-requests: read
     uses: Cratis/Workflows/.github/workflows/update-packages.yml@main
     secrets:
       PAT_WORKFLOWS: ${{ secrets.PAT_WORKFLOWS }}
